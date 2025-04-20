@@ -19,7 +19,7 @@ app.use(express.json());
 
 const config = {
   user: 'avnadmin',
-  password: 'AVNS_IMLYp2aGhd75oAakNDT',
+  password: process.env.password,
   host: 'fitness-first-fitness-first.g.aivencloud.com',
   port: 13434,
   database: 'fitness_first_db',
