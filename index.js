@@ -652,8 +652,8 @@ app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        insights: JSON.parse(results[0].insights),
-        tips: JSON.parse(results[0].tips),
+        insights: results[0].insights,
+        tips: results[0].tips,
         date: results[0].insight_date,
       },
     });
