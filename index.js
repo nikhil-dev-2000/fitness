@@ -570,45 +570,95 @@ app.post("/api/updateProfile", authenticateToken, (req, res) => {
   );
 });
 
+// Endpoint to check if activity exist for a user
+app.get("/api/getRecentActivity", authenticateToken, (req, res) => {
+  const userId = req.user.userId; // Extract user ID from the token
+  const { date } = req.query; // Get date from the query string
 
-app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
-  const userId = req.user.userId; // Extract user ID from the authenticated token
-  const date = req.query.date; // Get the date from the query parameters
+  if (!date) {
+    return res.status(400).json({ success: false, message: "Date parameter is required." });
+  }
 
-  // SQL query to fetch insights and tips for the given date or current date
   const query = `
-    SELECT 
-      insights,
-      tips,
-      DATE(date) AS insight_date
-    FROM Insights
-    WHERE user_id = ? AND DATE(date) = ?
+    SELECT activity_id
+    FROM Activity
+    WHERE user_id = ? AND timestamp > ?
+    LIMIT 1
   `;
 
-  // Use the provided date or default to the current date
-  const queryDate = date || new Date().toISOString().split("T")[0]; // Format today's date as YYYY-MM-DD
+  connection.query(query, [userId, date], (err, results) => {
+    if (err) {
+      console.error("Database query error:", err);
+      return res.status(500).json({ success: false, message: "Internal server error." });
+    }
 
-  connection.query(query, [userId, queryDate], (err, results) => {
+    if (results.length > 0) {
+      // Found a recent activity after the provided timestamp
+      return res.status(200).json({ success: true });
+    } else {
+      // No activity found after the provided timestamp
+      return res.status(200).json({ success: false, message: "No recent activities found." });
+    }
+  });
+});
+
+
+
+app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
+  const userId = req.user.userId;
+  const date = req.query.date;
+
+  let query = "";
+  let queryParams = [];
+
+  if (date) {
+    // If date is provided, search for that specific date
+    query = `
+      SELECT 
+        insights,
+        tips,
+        date AS insight_date
+      FROM Insights
+      WHERE user_id = ? AND DATE(date) = ?
+      LIMIT 1
+    `;
+    queryParams = [userId, date];
+  } else {
+    // If no date is provided, get the most recent entry
+    query = `
+      SELECT 
+        insights,
+        tips,
+        date AS insight_date
+      FROM Insights
+      WHERE user_id = ?
+      ORDER BY date DESC
+      LIMIT 1
+    `;
+    queryParams = [userId];
+  }
+
+  connection.query(query, queryParams, (err, results) => {
     if (err) {
       console.error("Database query error:", err);
       return res.status(500).json({ success: false, message: "Internal server error." });
     }
 
     if (results.length === 0) {
-      return res.status(404).json({ success: false, message: `No insights or tips found for ${queryDate}.` });
+      return res.status(404).json({ success: false, message: "No insights or tips found." });
     }
 
-    // Send back the insights and tips data
     res.status(200).json({
       success: true,
       data: {
-        insights: JSON.parse(results[0].insights), // Parse JSON string into an object
-        tips: JSON.parse(results[0].tips), // Parse JSON string into an object
+        insights: JSON.parse(results[0].insights),
+        tips: JSON.parse(results[0].tips),
         date: results[0].insight_date,
       },
     });
   });
 });
+
 
 app.get("/api/get-user-password", authenticateToken, (req, res) => {
   const userId = req.user.userId; // Extract user ID from the authenticated token
@@ -707,15 +757,14 @@ app.post("/api/verify-email", (req, res) => {
 
 // Endpoint to get user insights including profile and today's activity
 app.get("/api/getInsights", authenticateToken, (req, res) => {
-  const userId = req.user.userId; // Extract userId from the decoded token
+  const userId = req.user.userId;
 
-  // SQL query to fetch the user's details from Users table and today's activity from Activity table
   const query = `
     SELECT 
       u.general_goal,
       u.weight,
       u.height,
-      TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) AS age, -- Calculate age from DOB
+      TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) AS age,
       u.body_type,
       u.experience_level,
       u.health_conditions,
@@ -726,12 +775,17 @@ app.get("/api/getInsights", authenticateToken, (req, res) => {
       a.sleep,
       a.additional_comments
     FROM Users u
-    LEFT JOIN Activity a
-    ON u.user_id = a.user_id AND DATE(a.timestamp) = CURDATE() -- Match today's date in Activity table
+    LEFT JOIN (
+      SELECT *
+      FROM Activity
+      WHERE user_id = ?
+      ORDER BY timestamp DESC
+      LIMIT 1
+    ) a ON u.user_id = a.user_id
     WHERE u.user_id = ?
   `;
 
-  connection.query(query, [userId], (err, results) => {
+  connection.query(query, [userId, userId], (err, results) => {
     if (err) {
       console.error("Database query error:", err);
       return res.status(500).json({ success: false, message: "Internal server error." });
@@ -741,13 +795,10 @@ app.get("/api/getInsights", authenticateToken, (req, res) => {
       return res.status(404).json({ success: false, message: "No data found for the user." });
     }
 
-    // Print the fetched data
-    console.log("User Insights:", results[0]);
-
-    // Send back the data in the response
     res.status(200).json({ success: true, data: results[0] });
   });
 });
+
 
 app.get("/api/activity/last7", authenticateToken, (req, res) => {
   const currentUserId = req.user.userId; // Extract the user ID from the authenticated token
@@ -1053,6 +1104,53 @@ app.get("/api/users/search", authenticateToken, (req, res) => {
     }
     
     res.status(200).json({ success: true, data: results });
+  });
+});
+
+
+app.get("/api/users/existing", authenticateToken, (req, res) => {
+  const currentUserId = req.user.userId;
+  
+  res.status(200).json({ 
+    success: true, 
+    user_id: currentUserId
+  });
+});
+
+
+
+// Endpoint to get just a user's name by ID
+app.get("/api/users/:userId", authenticateToken, (req, res) => {
+  const userId = req.params.userId;
+  
+  // Simple validation for the user ID
+  if (!userId || isNaN(parseInt(userId))) {
+    return res.status(400).json({ success: false, message: "Invalid user ID." });
+  }
+  
+  const query = `
+    SELECT name
+    FROM Users
+    WHERE user_id = ?
+  `;
+  
+  connection.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error("Database query error:", err);
+      return res.status(500).json({ success: false, message: "Internal server error." });
+    }
+    
+    if (results.length === 0) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    
+    // Return just the name in the data object
+    res.status(200).json({ 
+      success: true, 
+      data: {
+        name: results[0].name
+      }
+    });
   });
 });
 
