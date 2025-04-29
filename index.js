@@ -612,7 +612,7 @@ app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
   let queryParams = [];
 
   if (date) {
-    // If date is provided, search for that specific date
+    // Fetch the latest entry on the given date
     query = `
       SELECT 
         insights,
@@ -620,11 +620,12 @@ app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
         date AS insight_date
       FROM Insights
       WHERE user_id = ? AND DATE(date) = ?
+      ORDER BY date DESC
       LIMIT 1
     `;
     queryParams = [userId, date];
   } else {
-    // If no date is provided, get the most recent entry
+    // Fetch the latest overall entry
     query = `
       SELECT 
         insights,
@@ -658,6 +659,7 @@ app.get("/api/check-existing-insights", authenticateToken, (req, res) => {
     });
   });
 });
+
 
 
 app.get("/api/get-user-password", authenticateToken, (req, res) => {
